@@ -94,11 +94,40 @@ class MainActivity : AppCompatActivity() {
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
+        webView.settings.useWideViewPort = true
+        webView.settings.loadWithOverviewMode = true
+        webView.settings.setSupportZoom(true)
+        webView.settings.builtInZoomControls = true
+        webView.settings.displayZoomControls = false
+
+        // Pretend to be a desktop Chrome browser so the site serves/renders
+        // its normal desktop layout instead of the mobile view.
+        webView.settings.userAgentString =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 if (url == null) return
+
+                // Force the page's CSS to treat the viewport as desktop-width,
+                // in case its layout relies on actual viewport size rather
+                // than user agent sniffing.
+                view?.evaluateJavascript(
+                    """
+                    (function() {
+                        var meta = document.querySelector('meta[name="viewport"]');
+                        if (!meta) {
+                            meta = document.createElement('meta');
+                            meta.name = 'viewport';
+                            document.getElementsByTagName('head')[0].appendChild(meta);
+                        }
+                        meta.setAttribute('content', 'width=1280, initial-scale=0.3');
+                    })();
+                    """.trimIndent(),
+                    null
+                )
 
                 val onLoginPage = url.contains("login.php")
                 if (!onLoginPage && url.startsWith(Constants.BASE_URL)) {
