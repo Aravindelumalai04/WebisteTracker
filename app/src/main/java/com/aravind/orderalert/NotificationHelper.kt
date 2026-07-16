@@ -55,6 +55,18 @@ object NotificationHelper {
         NotificationManagerCompat.from(context).notify(order.orderId.hashCode(), notification)
     }
 
+    fun notifyDebug(context: Context, message: String) {
+        val notification = NotificationCompat.Builder(context, Constants.CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("Order Alert: check result")
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(context).notify(1234, notification)
+    }
+
     fun notifySessionExpired(context: Context) {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP

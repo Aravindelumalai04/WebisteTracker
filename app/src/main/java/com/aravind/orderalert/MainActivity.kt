@@ -16,6 +16,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.workDataOf
 
 class MainActivity : AppCompatActivity() {
 
@@ -72,9 +73,15 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Please log in first.", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            val request = OneTimeWorkRequestBuilder<OrderCheckWorker>().build()
+            val request = OneTimeWorkRequestBuilder<OrderCheckWorker>()
+                .setInputData(workDataOf("manual" to true))
+                .build()
             WorkManager.getInstance(this).enqueue(request)
-            Toast.makeText(this, "Checking now...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this,
+                "Checking now... watch your notifications for the result in a few seconds.",
+                Toast.LENGTH_LONG
+            ).show()
         }
 
         webView.loadUrl(Constants.LOGIN_URL)

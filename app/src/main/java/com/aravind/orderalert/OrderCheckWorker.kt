@@ -18,6 +18,9 @@ class OrderCheckWorker(context: Context, params: WorkerParameters) :
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
+    private val isManualCheck: Boolean
+        get() = inputData.getBoolean("manual", false)
+
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
@@ -37,9 +40,17 @@ class OrderCheckWorker(context: Context, params: WorkerParameters) :
                     Constants.PREFS_NAME, Context.MODE_PRIVATE
                 )
                 val alreadyNotified = prefs.getBoolean(Constants.PREF_SESSION_EXPIRED_NOTIFIED, false)
-                if (!alreadyNotified) {
+                if (!alreadyNotified || isManualCheck) {
                     NotificationHelper.notifySessionExpired(applicationContext)
                     prefs.edit().putBoolean(Constants.PREF_SESSION_EXPIRED_NOTIFIED, true).apply()
+                }
+                if (isManualCheck) {
+                    NotificationHelper.notifyDebug(
+                        applicationContext,
+                        "Check failed: HTTP ${response.code}, page looked like login page = " +
+                            "${OrderParser.isLoginPage(body)}. Your session cookie probably isn't " +
+                            "being sent. Try logging in again."
+                    )
                 }
                 return@withContext Result.success()
             }
@@ -71,6 +82,17 @@ class OrderCheckWorker(context: Context, params: WorkerParameters) :
                     notifiedIds.toList().takeLast(300).toMutableSet()
                 } else notifiedIds
                 prefs.edit().putStringSet(Constants.PREF_NOTIFIED_IDS, trimmed).apply()
+            }
+
+            if (isManualCheck) {
+                val idsPreview = matches.take(5).joinToString(", ") { it.orderId }
+                NotificationHelper.notifyDebug(
+                    applicationContext,
+                    "Check complete. Parsed ${allOrders.size} orders total, " +
+                        "${matches.size} are paid+pending" +
+                        (if (matches.isNotEmpty()) " (e.g. $idsPreview)" else "") +
+                        ". Already-notified count: ${notifiedIds.size}."
+                )
             }
 
             Result.success()
