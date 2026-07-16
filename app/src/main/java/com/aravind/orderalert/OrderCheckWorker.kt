@@ -89,7 +89,7 @@ class OrderCheckWorker(context: Context, params: WorkerParameters) :
                 NotificationHelper.notifyDebug(
                     applicationContext,
                     "Check complete. Parsed ${allOrders.size} orders total, " +
-                        "${matches.size} are paid+pending" +
+                        "${matches.size} are paid+processing" +
                         (if (matches.isNotEmpty()) " (e.g. $idsPreview)" else "") +
                         ". Already-notified count: ${notifiedIds.size}."
                 )

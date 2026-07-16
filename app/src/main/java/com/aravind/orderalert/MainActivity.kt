@@ -64,7 +64,7 @@ class MainActivity : AppCompatActivity() {
             WorkScheduler.schedule(this)
             prefs.edit().putBoolean(Constants.PREF_LOGGED_IN, true).apply()
             statusText.text = "Monitoring active. Checking every ${Constants.CHECK_INTERVAL_MINUTES} minutes " +
-                "for orders that are paid but still pending."
+                "for orders that are paid but still processing."
             Toast.makeText(this, "Monitoring started", Toast.LENGTH_SHORT).show()
         }
 
@@ -151,7 +151,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateStatus() {
         statusText.text = if (isLoggedIn) {
-            "Logged in. Tap 'Start Monitoring' to receive alerts for paid + pending orders " +
+            "Logged in. Tap 'Start Monitoring' to receive alerts for paid + processing orders " +
                 "every ${Constants.CHECK_INTERVAL_MINUTES} minutes."
         } else {
             "Not logged in. Please log in on the page below with your asraaz.com account."

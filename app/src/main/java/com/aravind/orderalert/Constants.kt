@@ -24,7 +24,7 @@ object Constants {
     const val COL_AMOUNT = "amount"
 
     const val TARGET_PAYMENT_TYPE = "paid"
-    const val TARGET_STATUS = "pending"
+    const val TARGET_STATUS = "processing"
 
     const val CHECK_INTERVAL_MINUTES = 15L
 }

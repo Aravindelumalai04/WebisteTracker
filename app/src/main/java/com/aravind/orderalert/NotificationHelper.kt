@@ -18,7 +18,7 @@ object NotificationHelper {
                 Constants.CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Alerts for orders that are paid but still pending"
+                description = "Alerts for orders that are paid but still processing"
                 enableVibration(true)
             }
             val manager = context.getSystemService(NotificationManager::class.java)
@@ -42,10 +42,10 @@ object NotificationHelper {
 
         val notification = NotificationCompat.Builder(context, Constants.CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("Paid order awaiting approval")
+            .setContentTitle("Paid order still processing")
             .setContentText("Order #${order.orderId} - $nameToShow $amountText".trim())
             .setStyle(NotificationCompat.BigTextStyle().bigText(
-                "Order #${order.orderId} from $nameToShow is paid ($amountText) but still marked pending."
+                "Order #${order.orderId} from $nameToShow is paid ($amountText) but still marked processing."
             ))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
