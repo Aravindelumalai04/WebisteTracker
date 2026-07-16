@@ -26,6 +26,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnTestNow: Button
 
     private var isLoggedIn = false
+    private var pendingCapture: Triple<String, List<Pair<String, String>>, Map<String, String>>? = null
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -106,6 +107,15 @@ class MainActivity : AppCompatActivity() {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
+        webView.addJavascriptInterface(
+            LoginCaptureInterface { actionUrl, fields, types ->
+                runOnUiThread {
+                    pendingCapture = Triple(actionUrl, fields, types)
+                }
+            },
+            "AndroidLoginCapture"
+        )
+
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
@@ -130,6 +140,33 @@ class MainActivity : AppCompatActivity() {
                 )
 
                 val onLoginPage = url.contains("login.php")
+
+                if (onLoginPage) {
+                    view?.evaluateJavascript(
+                        """
+                        (function() {
+                            var form = document.querySelector('form');
+                            if (!form || form.__orderAlertHooked) return;
+                            form.__orderAlertHooked = true;
+                            form.addEventListener('submit', function() {
+                                try {
+                                    var data = { action: form.action, fields: [] };
+                                    var inputs = form.querySelectorAll('input, select, textarea');
+                                    inputs.forEach(function(el) {
+                                        if (!el.name) return;
+                                        if ((el.type === 'checkbox' || el.type === 'radio') && !el.checked) return;
+                                        if (el.type === 'button') return;
+                                        data.fields.push({ name: el.name, type: el.type || 'text', value: el.value });
+                                    });
+                                    AndroidLoginCapture.onFormSubmit(JSON.stringify(data));
+                                } catch (e) {}
+                            });
+                        })();
+                        """.trimIndent(),
+                        null
+                    )
+                }
+
                 if (!onLoginPage && url.startsWith(Constants.BASE_URL)) {
                     val wasLoggedIn = isLoggedIn
                     isLoggedIn = true
@@ -137,6 +174,37 @@ class MainActivity : AppCompatActivity() {
                     val prefs = getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
                     prefs.edit().putBoolean(Constants.PREF_LOGGED_IN, true).apply()
                     updateStatus()
+
+                    // Now that login is confirmed successful, persist whatever
+                    // form data was captured at submit time for auto re-login later.
+                    pendingCapture?.let { (actionUrl, fields, types) ->
+                        val passwordEntry = fields.firstOrNull { types[it.first] == "password" }
+                        val emailEntry = fields.firstOrNull {
+                            types[it.first] != "password" &&
+                                (it.first.contains("email", true) ||
+                                    it.first.contains("user", true) ||
+                                    it.first.contains("login", true))
+                        } ?: fields.firstOrNull { types[it.first] != "password" && types[it.first] != "hidden" }
+
+                        if (passwordEntry != null && emailEntry != null) {
+                            val others = fields
+                                .filter { it.first != passwordEntry.first && it.first != emailEntry.first }
+                                .associate { it.first to it.second }
+                            CredentialStore.save(
+                                this@MainActivity,
+                                SavedLogin(
+                                    actionUrl = actionUrl,
+                                    emailField = emailEntry.first,
+                                    emailValue = emailEntry.second,
+                                    passwordField = passwordEntry.first,
+                                    passwordValue = passwordEntry.second,
+                                    otherFields = others
+                                )
+                            )
+                        }
+                        pendingCapture = null
+                    }
+
                     if (!wasLoggedIn) {
                         Toast.makeText(
                             this@MainActivity,

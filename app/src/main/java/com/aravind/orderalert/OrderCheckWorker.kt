@@ -5,8 +5,10 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.jsoup.Jsoup
 import java.util.concurrent.TimeUnit
 
 class OrderCheckWorker(context: Context, params: WorkerParameters) :
@@ -23,42 +25,41 @@ class OrderCheckWorker(context: Context, params: WorkerParameters) :
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
-            val request = Request.Builder()
-                .url(Constants.ORDERS_URL)
-                .header(
-                    "User-Agent",
-                    "Mozilla/5.0 (Linux; Android 13) OrderAlertApp/1.0"
-                )
-                .build()
+            var body = fetchOrdersPage()
+            var loginFailed = body == null
 
-            val response = client.newCall(request).execute()
-            val body = response.body?.string().orEmpty()
-            response.close()
+            if (loginFailed) {
+                val reloginSucceeded = attemptAutoRelogin()
+                if (reloginSucceeded) {
+                    body = fetchOrdersPage()
+                    loginFailed = body == null
+                }
+            }
 
-            if (!response.isSuccessful || OrderParser.isLoginPage(body)) {
-                val prefs = applicationContext.getSharedPreferences(
-                    Constants.PREFS_NAME, Context.MODE_PRIVATE
-                )
+            val prefs = applicationContext.getSharedPreferences(
+                Constants.PREFS_NAME, Context.MODE_PRIVATE
+            )
+
+            if (loginFailed || body == null) {
                 val alreadyNotified = prefs.getBoolean(Constants.PREF_SESSION_EXPIRED_NOTIFIED, false)
                 if (!alreadyNotified || isManualCheck) {
                     NotificationHelper.notifySessionExpired(applicationContext)
                     prefs.edit().putBoolean(Constants.PREF_SESSION_EXPIRED_NOTIFIED, true).apply()
                 }
                 if (isManualCheck) {
+                    val hasSaved = CredentialStore.hasSavedLogin(applicationContext)
                     NotificationHelper.notifyDebug(
                         applicationContext,
-                        "Check failed: HTTP ${response.code}, page looked like login page = " +
-                            "${OrderParser.isLoginPage(body)}. Your session cookie probably isn't " +
-                            "being sent. Try logging in again."
+                        "Check failed: still on login page after " +
+                            (if (hasSaved) "attempting auto re-login. Your saved credentials may be " +
+                                "out of date, or the site changed its login form. Please log in manually once."
+                            else "no saved login found yet. Log in manually once so I can capture it for next time.")
                     )
                 }
                 return@withContext Result.success()
             }
 
-            val prefs = applicationContext.getSharedPreferences(
-                Constants.PREFS_NAME, Context.MODE_PRIVATE
-            )
-            // Session is valid again, reset the "already notified" expiry flag.
+            // Session is valid, reset the "already notified" expiry flag.
             prefs.edit().putBoolean(Constants.PREF_SESSION_EXPIRED_NOTIFIED, false).apply()
 
             val allOrders = OrderParser.parseOrders(body)
@@ -77,7 +78,6 @@ class OrderCheckWorker(context: Context, params: WorkerParameters) :
             }
 
             if (newlyNotified) {
-                // Keep the notified-id set from growing forever.
                 val trimmed = if (notifiedIds.size > 300) {
                     notifiedIds.toList().takeLast(300).toMutableSet()
                 } else notifiedIds
@@ -98,6 +98,71 @@ class OrderCheckWorker(context: Context, params: WorkerParameters) :
             Result.success()
         } catch (e: Exception) {
             Result.retry()
+        }
+    }
+
+    /** Returns the page body, or null if the request failed or landed on the login page. */
+    private fun fetchOrdersPage(): String? {
+        val request = Request.Builder()
+            .url(Constants.ORDERS_URL)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 13) OrderAlertApp/1.0")
+            .build()
+
+        val response = client.newCall(request).execute()
+        val body = response.body?.string().orEmpty()
+        response.close()
+
+        if (!response.isSuccessful || OrderParser.isLoginPage(body)) return null
+        return body
+    }
+
+    /**
+     * Uses the saved (captured) login form to silently log back in.
+     * Fetches a fresh copy of the login page first, so any hidden/dynamic
+     * fields (e.g. CSRF tokens) are current rather than stale.
+     */
+    private fun attemptAutoRelogin(): Boolean {
+        val saved = CredentialStore.load(applicationContext) ?: return false
+
+        val freshValues = try {
+            val loginPageRequest = Request.Builder()
+                .url(Constants.LOGIN_URL)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 13) OrderAlertApp/1.0")
+                .build()
+            val loginPageResponse = client.newCall(loginPageRequest).execute()
+            val html = loginPageResponse.body?.string().orEmpty()
+            loginPageResponse.close()
+            val doc = Jsoup.parse(html)
+            val values = mutableMapOf<String, String>()
+            doc.select("input[name], select[name], textarea[name]").forEach { el ->
+                values[el.attr("name")] = el.attr("value")
+            }
+            values
+        } catch (e: Exception) {
+            emptyMap()
+        }
+
+        val formBuilder = FormBody.Builder()
+            .add(saved.emailField, saved.emailValue)
+            .add(saved.passwordField, saved.passwordValue)
+
+        saved.otherFields.forEach { (name, fallbackValue) ->
+            val currentValue = freshValues[name] ?: fallbackValue
+            formBuilder.add(name, currentValue)
+        }
+
+        return try {
+            val loginRequest = Request.Builder()
+                .url(saved.actionUrl)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 13) OrderAlertApp/1.0")
+                .post(formBuilder.build())
+                .build()
+            val loginResponse = client.newCall(loginRequest).execute()
+            val ok = loginResponse.isSuccessful
+            loginResponse.close()
+            ok
+        } catch (e: Exception) {
+            false
         }
     }
 }
